@@ -1,5 +1,6 @@
 import os
 import time
+import random
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 from fastapi import FastAPI, File, UploadFile
@@ -110,14 +111,14 @@ def get_tracks_by_emotion(emotion):
                 if track and "external_urls" in track:
                     url = track["external_urls"]["spotify"]
                     all_tracks.add(url)
-            time.sleep(0.3) 
+            time.sleep(0.3)  # avoid rate limiting
         except Exception as e:
             print(f"Error fetching playlist {playlist_id}: {e}")
             continue
 
     track_list = list(all_tracks)
-    emotion_cache[emotion] = track_list
-    return track_list
+    emotion_cache[emotion] = random.sample(track_list, min(20, len(track_list)))
+    return emotion_cache[emotion]
 
 # === API Endpoint ===
 
