@@ -4,6 +4,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from keras.models import load_model
+from keras import layers
 from keras.utils import register_keras_serializable
 from PIL import Image
 import numpy as np
@@ -11,26 +12,47 @@ import io
 import requests
 import tensorflow as tf
 
-# Register custom Attention layer
+# === Custom Attention Layer ===
+
+def kernel_init(scale):
+    scale = max(scale, 1e-10)
+    return tf.keras.initializers.VarianceScaling(
+        scale, mode='fan_avg', distribution='uniform'
+    )
+
 @register_keras_serializable()
-class Attention(tf.keras.layers.Layer):
-    def __init__(self, units=1024, **kwargs):
-        super().__init__(**kwargs)
+class Attention(layers.Layer):
+    def __init__(self, units, groups=8, **kwargs):
         self.units = units
-        self.dense = tf.keras.layers.Dense(units, activation="tanh")
+        super().__init__(**kwargs)
+        self.query = layers.Dense(units, kernel_initializer=kernel_init(1.0))
+        self.key = layers.Dense(units, kernel_initializer=kernel_init(1.0))
+        self.value = layers.Dense(units, kernel_initializer=kernel_init(1.0))
+        self.proj = layers.Dense(units, kernel_initializer=kernel_init(0.0))
 
     def call(self, inputs):
-        score = tf.nn.softmax(self.dense(inputs), axis=1)  
-        context = tf.reduce_sum(score * inputs, axis=1)    
-        return context
+        scale = tf.cast(self.units, tf.float32) ** -0.5
+        q = self.query(inputs)
+        k = self.key(inputs)
+        v = self.value(inputs)
+        attn_score = tf.matmul(q, k, transpose_b=True) * scale
+        attn_score = tf.nn.softmax(attn_score, axis=-1)
+        context_vector = tf.matmul(attn_score, v)
+        context_vector = self.proj(context_vector)
+        return inputs + context_vector
 
+    def get_config(self):
+        config = super().get_config()
+        config.update({"units": self.units})
+        return config
+
+# === FastAPI App ===
 
 app = FastAPI()
 
 # Load your face emotion recognition model
 model = load_model("facemodel.keras", custom_objects={"Attention": Attention})
 
-# Allow all CORS (adjust if needed for production)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -39,7 +61,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Set Spotify credentials (secure in production)
+# === Spotify API Setup ===
+
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "c37a556373604e48a727e92549d859fc")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "bef55abea06246c5b8c9ece20aed32ec")
 
@@ -67,7 +90,12 @@ def get_tracks_by_emotion(emotion):
         f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
         headers=headers,
     ).json()
-    return [item["track"]["external_urls"]["spotify"] for item in tracks["items"] if item.get("track")]
+    return [
+        item["track"]["external_urls"]["spotify"]
+        for item in tracks["items"] if item.get("track")
+    ]
+
+# === API Endpoint ===
 
 @app.post("/emotion-music")
 async def detect_and_recommend(file: UploadFile = File(...)):
