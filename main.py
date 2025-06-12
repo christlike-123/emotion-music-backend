@@ -100,8 +100,8 @@ def get_tracks_by_emotion(emotion):
 @app.post("/emotion-music")
 async def detect_and_recommend(file: UploadFile = File(...)):
     image_bytes = await file.read()
-    img = Image.open(io.BytesIO(image_bytes)).convert("L").resize((48, 48))
-    img_array = np.expand_dims(np.array(img) / 255.0, axis=(0, -1))
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((224, 224))
+    img_array = np.expand_dims(np.array(img) / 255.0, axis=0)
     pred = model.predict(img_array)
     emotions = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
     detected_emotion = emotions[np.argmax(pred)]
