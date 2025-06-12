@@ -77,23 +77,32 @@ def get_spotify_token():
 def get_tracks_by_emotion(emotion):
     token = get_spotify_token()
     headers = {"Authorization": f"Bearer {token}"}
+
     search = requests.get(
         "https://api.spotify.com/v1/search",
         headers=headers,
-        params={"q": emotion, "type": "playlist", "limit": 1},
+        params={"q": emotion, "type": "playlist", "limit": 10},
     )
     playlists = search.json().get("playlists", {}).get("items", [])
-    if not playlists:
-        return []
-    playlist_id = playlists[0]["id"]
-    tracks = requests.get(
-        f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
-        headers=headers,
-    ).json()
-    return [
-        item["track"]["external_urls"]["spotify"]
-        for item in tracks["items"] if item.get("track")
-    ]
+    
+    all_tracks = set()  
+
+    for playlist in playlists:
+        playlist_id = playlist["id"]
+        r = requests.get(
+            f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
+            headers=headers,
+            params={"limit": 50},
+        )
+        items = r.json().get("items", [])
+        for item in items:
+            track = item.get("track")
+            if track and "external_urls" in track:
+                url = track["external_urls"]["spotify"]
+                all_tracks.add(url)
+
+    return list(all_tracks)  
+
 
 # === API Endpoint ===
 
