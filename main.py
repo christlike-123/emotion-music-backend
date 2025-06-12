@@ -1,0 +1,59 @@
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from keras.models import load_model
+from PIL import Image
+import numpy as np
+import io
+import requests
+import os
+
+app = FastAPI()
+model = load_model("facemodel.keras")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "c37a556373604e48a727e92549d859fc")
+SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "bef55abea06246c5b8c9ece20aed32ec")
+
+def get_spotify_token():
+    resp = requests.post(
+        "https://accounts.spotify.com/api/token",
+        data={"grant_type": "client_credentials"},
+        auth=(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET),
+    )
+    return resp.json()["access_token"]
+
+def get_tracks_by_emotion(emotion):
+    token = get_spotify_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    search = requests.get(
+        "https://api.spotify.com/v1/search",
+        headers=headers,
+        params={"q": emotion, "type": "playlist", "limit": 1},
+    )
+    playlists = search.json().get("playlists", {}).get("items", [])
+    if not playlists:
+        return []
+    playlist_id = playlists[0]["id"]
+    tracks = requests.get(
+        f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
+        headers=headers,
+    ).json()
+    return [item["track"]["external_urls"]["spotify"] for item in tracks["items"] if item.get("track")]
+
+@app.post("/emotion-music")
+async def detect_and_recommend(file: UploadFile = File(...)):
+    image_bytes = await file.read()
+    img = Image.open(io.BytesIO(image_bytes)).convert("L").resize((48, 48))
+    img_array = np.expand_dims(np.array(img) / 255.0, axis=(0, -1))
+    pred = model.predict(img_array)
+    emotions = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
+    detected_emotion = emotions[np.argmax(pred)]
+    tracks = get_tracks_by_emotion(detected_emotion)
+    return {"emotion": detected_emotion, "tracks": tracks}
