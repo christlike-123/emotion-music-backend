@@ -1,15 +1,35 @@
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from keras.models import load_model
+from keras.utils import register_keras_serializable
 from PIL import Image
 import numpy as np
 import io
 import requests
-import os
+import tensorflow as tf
+
+# Register custom Attention layer
+@register_keras_serializable()
+class Attention(tf.keras.layers.Layer):
+    def __init__(self, units=1024, **kwargs):
+        super().__init__(**kwargs)
+        self.units = units
+        self.dense = tf.keras.layers.Dense(units, activation="tanh")
+
+    def call(self, inputs):
+        scores = tf.nn.softmax(self.dense(inputs), axis=1)
+        context = scores * inputs
+        return tf.reduce_sum(context, axis=1)
 
 app = FastAPI()
-model = load_model("facemodel.keras")
 
+# Load your face emotion recognition model
+model = load_model("facemodel.keras", custom_objects={"Attention": Attention})
+
+# Allow all CORS (adjust if needed for production)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,6 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Set Spotify credentials (secure in production)
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "c37a556373604e48a727e92549d859fc")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "bef55abea06246c5b8c9ece20aed32ec")
 
