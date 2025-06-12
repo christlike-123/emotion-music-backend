@@ -20,9 +20,10 @@ class Attention(tf.keras.layers.Layer):
         self.dense = tf.keras.layers.Dense(units, activation="tanh")
 
     def call(self, inputs):
-        scores = tf.nn.softmax(self.dense(inputs), axis=1)
-        context = scores * inputs
-        return tf.reduce_sum(context, axis=1)
+        score = tf.nn.softmax(self.dense(inputs), axis=1)  
+        context = tf.reduce_sum(score * inputs, axis=1)    
+        return context
+
 
 app = FastAPI()
 
