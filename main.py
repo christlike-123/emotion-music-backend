@@ -85,9 +85,12 @@ def get_tracks_by_emotion(emotion):
     )
     playlists = search.json().get("playlists", {}).get("items", [])
     
-    all_tracks = set()  
+    all_tracks = set()
 
     for playlist in playlists:
+        if not playlist or "id" not in playlist:
+            continue  
+
         playlist_id = playlist["id"]
         r = requests.get(
             f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
@@ -101,7 +104,7 @@ def get_tracks_by_emotion(emotion):
                 url = track["external_urls"]["spotify"]
                 all_tracks.add(url)
 
-    return list(all_tracks)  
+    return list(all_tracks)
 
 
 # === API Endpoint ===
