@@ -1,4 +1,5 @@
 import os
+import time
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 from fastapi import FastAPI, File, UploadFile
@@ -66,6 +67,8 @@ app.add_middleware(
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "c37a556373604e48a727e92549d859fc")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "bef55abea06246c5b8c9ece20aed32ec")
 
+emotion_cache = {}
+
 def get_spotify_token():
     resp = requests.post(
         "https://accounts.spotify.com/api/token",
@@ -75,37 +78,46 @@ def get_spotify_token():
     return resp.json()["access_token"]
 
 def get_tracks_by_emotion(emotion):
+    if emotion in emotion_cache:
+        return emotion_cache[emotion]
+
     token = get_spotify_token()
     headers = {"Authorization": f"Bearer {token}"}
 
     search = requests.get(
         "https://api.spotify.com/v1/search",
         headers=headers,
-        params={"q": emotion, "type": "playlist", "limit": 10},
+        params={"q": emotion, "type": "playlist", "limit": 5},
     )
     playlists = search.json().get("playlists", {}).get("items", [])
-    
+
     all_tracks = set()
 
     for playlist in playlists:
         if not playlist or "id" not in playlist:
-            continue  
+            continue
 
         playlist_id = playlist["id"]
-        r = requests.get(
-            f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
-            headers=headers,
-            params={"limit": 50},
-        )
-        items = r.json().get("items", [])
-        for item in items:
-            track = item.get("track")
-            if track and "external_urls" in track:
-                url = track["external_urls"]["spotify"]
-                all_tracks.add(url)
+        try:
+            r = requests.get(
+                f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
+                headers=headers,
+                params={"limit": 50},
+            )
+            items = r.json().get("items", [])
+            for item in items:
+                track = item.get("track")
+                if track and "external_urls" in track:
+                    url = track["external_urls"]["spotify"]
+                    all_tracks.add(url)
+            time.sleep(0.3) 
+        except Exception as e:
+            print(f"Error fetching playlist {playlist_id}: {e}")
+            continue
 
-    return list(all_tracks)
-
+    track_list = list(all_tracks)
+    emotion_cache[emotion] = track_list
+    return track_list
 
 # === API Endpoint ===
 
