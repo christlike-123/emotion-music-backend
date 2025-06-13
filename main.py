@@ -13,6 +13,7 @@ import numpy as np
 import io
 import requests
 import tensorflow as tf
+import cv2
 
 # === Custom Attention Layer ===
 
@@ -47,6 +48,21 @@ class Attention(layers.Layer):
         config = super().get_config()
         config.update({"units": self.units})
         return config
+
+# === Face Detection ===
+
+def detect_and_crop_face(pil_image):
+    img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    faces = face_cascade.detectMultiScale(img, scaleFactor=1.1, minNeighbors=5)
+
+    if len(faces) == 0:
+        return pil_image  # fallback if no face is detected
+
+    x, y, w, h = faces[0]
+    face_img = img[y:y+h, x:x+w]
+    face_rgb = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
+    return Image.fromarray(face_rgb)
 
 # === FastAPI App ===
 
@@ -125,7 +141,8 @@ def get_tracks_by_emotion(emotion):
 @app.post("/emotion-music")
 async def detect_and_recommend(file: UploadFile = File(...)):
     image_bytes = await file.read()
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((224, 224))
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img = detect_and_crop_face(img).resize((224, 224))
     img_array = np.expand_dims(np.array(img) / 255.0, axis=0)
     pred = model.predict(img_array)
     emotions = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
