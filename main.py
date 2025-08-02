@@ -73,7 +73,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.api_route("/", methods=["GET", "HEAD"])
+@app.get("/")
 def root():
     return {"status": "Backend is running"}
 
@@ -128,8 +128,10 @@ def get_tracks_by_emotion(emotion):
             return []
 
         playlists = data["playlists"].get("items", [])
-        if not playlists:
-            print(f"[SPOTIFY] No playlists found for emotion: {emotion}")
+        valid_playlists = [pl for pl in playlists if pl and pl.get("id")]
+
+        if not valid_playlists:
+            print(f"[SPOTIFY] No valid playlists found for emotion: {emotion}")
             return []
 
     except Exception as e:
@@ -138,11 +140,7 @@ def get_tracks_by_emotion(emotion):
 
     all_tracks = set()
 
-    for playlist in playlists:
-        if not playlist or not playlist.get("id"):
-            print("[SPOTIFY] Invalid playlist object.")
-            continue
-
+    for playlist in valid_playlists:
         playlist_id = playlist["id"]
 
         try:
