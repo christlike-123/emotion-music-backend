@@ -68,22 +68,25 @@ def detect_and_crop_face(pil_image):
 
 app = FastAPI()
 
-# Load your face emotion recognition model
 model = load_model("facemodel.keras", custom_objects={"Attention": Attention})
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # You can restrict this to your frontend domain
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# === Root Route ===
+# === Root Routes ===
 
 @app.get("/")
-def read_root():
-    return {"message": "Emotion Music Backend is running."}
+def root():
+    return {"status": "Backend is running"}
+
+@app.get("/ping")
+def ping():
+    return {"status": "ok"}
 
 # === Spotify API Setup ===
 
@@ -101,10 +104,7 @@ def get_spotify_token():
             timeout=10
         )
         token_data = resp.json()
-        if "access_token" in token_data:
-            return token_data["access_token"]
-        else:
-            raise ValueError("Spotify token fetch failed: " + str(token_data))
+        return token_data.get("access_token")
     except Exception as e:
         print(f"[SPOTIFY TOKEN ERROR] {e}")
         return None
@@ -114,6 +114,10 @@ def get_tracks_by_emotion(emotion):
         return emotion_cache[emotion]
 
     token = get_spotify_token()
+    if token is None:
+        print("[ERROR] Failed to get Spotify token.")
+        return []
+
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
@@ -124,8 +128,6 @@ def get_tracks_by_emotion(emotion):
             timeout=10
         )
         data = search.json()
-        if not isinstance(data, dict):
-            raise ValueError("Invalid response from Spotify (not JSON)")
         playlists = data.get("playlists", {}).get("items", [])
     except Exception as e:
         print(f"[SPOTIFY SEARCH ERROR] {e}")
@@ -134,10 +136,10 @@ def get_tracks_by_emotion(emotion):
     all_tracks = set()
 
     for playlist in playlists:
-        if not playlist or "id" not in playlist:
+        playlist_id = playlist.get("id")
+        if not playlist_id:
             continue
 
-        playlist_id = playlist["id"]
         try:
             r = requests.get(
                 f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
