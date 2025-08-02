@@ -2,6 +2,8 @@ import os
 import time
 import random
 import traceback
+import requests
+import io
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
@@ -12,8 +14,6 @@ from keras import layers
 from keras.utils import register_keras_serializable
 from PIL import Image
 import numpy as np
-import io
-import requests
 import tensorflow as tf
 import cv2
 
@@ -123,25 +123,21 @@ def get_tracks_by_emotion(emotion):
             timeout=10
         )
         data = search.json()
-        if not data or "playlists" not in data:
-            print("[SPOTIFY] Invalid search response:", data)
+        playlists = data.get("playlists", {}).get("items", [])
+        if not playlists:
+            print(f"[SPOTIFY] No playlists found for emotion: {emotion}")
             return []
-
-        playlists = data["playlists"].get("items", [])
-        valid_playlists = [pl for pl in playlists if pl and pl.get("id")]
-
-        if not valid_playlists:
-            print(f"[SPOTIFY] No valid playlists found for emotion: {emotion}")
-            return []
-
     except Exception as e:
         print(f"[SPOTIFY SEARCH ERROR] {e}")
         return []
 
     all_tracks = set()
 
-    for playlist in valid_playlists:
-        playlist_id = playlist["id"]
+    for playlist in playlists:
+        playlist_id = playlist.get("id")
+        if not playlist_id:
+            print("[SPOTIFY] Invalid playlist object.")
+            continue
 
         try:
             r = requests.get(
@@ -153,10 +149,8 @@ def get_tracks_by_emotion(emotion):
             items = r.json().get("items", [])
             for item in items:
                 track = item.get("track")
-                if track and "external_urls" in track:
-                    url = track["external_urls"].get("spotify")
-                    if url:
-                        all_tracks.add(url)
+                if track and track.get("external_urls", {}).get("spotify"):
+                    all_tracks.add(track["external_urls"]["spotify"])
             time.sleep(0.3)
         except Exception as e:
             print(f"[SPOTIFY TRACK FETCH ERROR] {e}")
