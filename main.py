@@ -182,23 +182,36 @@ def get_tracks_by_emotion(emotion):
 async def detect_and_recommend(file: UploadFile = File(...)):
     try:
         image_bytes = await file.read()
+        if not image_bytes:
+            raise ValueError("No image data received.")
+
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         img = detect_and_crop_face(img).resize((224, 224))
         img_array = np.expand_dims(np.array(img) / 255.0, axis=0)
 
         pred = model.predict(img_array)
-        if np.sum(pred) == 0:
-            raise ValueError("Model returned all zero probabilities.")
+        if pred is None or np.sum(pred) == 0:
+            raise ValueError("Invalid prediction result from model.")
 
         emotions = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
         detected_emotion = emotions[np.argmax(pred)]
 
+        print(f"[INFO] Detected emotion: {detected_emotion}")
+
         tracks = get_tracks_by_emotion(detected_emotion)
         if not tracks:
-            return {"emotion": detected_emotion, "tracks": [], "error": "No music tracks found."}
+            raise ValueError(f"No music tracks found for emotion: {detected_emotion}")
 
-        return {"emotion": detected_emotion, "tracks": tracks}
+        return {
+            "emotion": detected_emotion,
+            "tracks": tracks
+        }
+
     except Exception as e:
-        print("[ERROR]", e)
+        print("[ERROR] Emotion detection or track retrieval failed:", str(e))
         traceback.print_exc()
-        return {"emotion": "undefined", "tracks": [], "error": str(e)}
+        return {
+            "emotion": "undefined",
+            "tracks": [],
+            "error": f"Error: {str(e)}"
+        }
