@@ -1,6 +1,8 @@
 import os
 import time
 import random
+import traceback
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 from fastapi import FastAPI, File, UploadFile
@@ -137,14 +139,11 @@ def get_tracks_by_emotion(emotion):
     all_tracks = set()
 
     for playlist in playlists:
-        if not playlist:
-            print("[SPOTIFY] Encountered empty playlist object.")
+        if not playlist or not playlist.get("id"):
+            print("[SPOTIFY] Invalid playlist object.")
             continue
 
-        playlist_id = playlist.get("id")
-        if not playlist_id:
-            print("[SPOTIFY] Playlist missing 'id'. Skipping...")
-            continue
+        playlist_id = playlist["id"]
 
         try:
             r = requests.get(
@@ -190,9 +189,11 @@ async def detect_and_recommend(file: UploadFile = File(...)):
         detected_emotion = emotions[np.argmax(pred)]
 
         tracks = get_tracks_by_emotion(detected_emotion)
+        if not tracks:
+            return {"emotion": detected_emotion, "tracks": [], "error": "No music tracks found."}
+
         return {"emotion": detected_emotion, "tracks": tracks}
     except Exception as e:
-        import traceback
         print("[ERROR]", e)
         traceback.print_exc()
-        return {"emotion": "undefined", "tracks": []}
+        return {"emotion": "undefined", "tracks": [], "error": str(e)}
