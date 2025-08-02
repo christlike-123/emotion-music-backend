@@ -16,12 +16,9 @@ import tensorflow as tf
 import cv2
 
 # === Custom Attention Layer ===
-
 def kernel_init(scale):
     scale = max(scale, 1e-10)
-    return tf.keras.initializers.VarianceScaling(
-        scale, mode='fan_avg', distribution='uniform'
-    )
+    return tf.keras.initializers.VarianceScaling(scale, mode='fan_avg', distribution='uniform')
 
 @register_keras_serializable()
 class Attention(layers.Layer):
@@ -50,22 +47,18 @@ class Attention(layers.Layer):
         return config
 
 # === Face Detection ===
-
 def detect_and_crop_face(pil_image):
     img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
     faces = face_cascade.detectMultiScale(img, scaleFactor=1.1, minNeighbors=5)
-
     if len(faces) == 0:
-        return pil_image  # fallback if no face is detected
-
+        return pil_image
     x, y, w, h = faces[0]
     face_img = img[y:y+h, x:x+w]
     face_rgb = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
     return Image.fromarray(face_rgb)
 
 # === FastAPI App ===
-
 app = FastAPI()
 
 model = load_model("facemodel.keras", custom_objects={"Attention": Attention})
@@ -78,8 +71,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# === Root Routes ===
-
 @app.get("/")
 def root():
     return {"status": "Backend is running"}
@@ -89,7 +80,6 @@ def ping():
     return {"status": "ok"}
 
 # === Spotify API Setup ===
-
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "c37a556373604e48a727e92549d859fc")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "bef55abea06246c5b8c9ece20aed32ec")
 
@@ -104,7 +94,10 @@ def get_spotify_token():
             timeout=10
         )
         token_data = resp.json()
-        return token_data.get("access_token")
+        if not token_data or "access_token" not in token_data:
+            print("[SPOTIFY] Invalid token response:", token_data)
+            return None
+        return token_data["access_token"]
     except Exception as e:
         print(f"[SPOTIFY TOKEN ERROR] {e}")
         return None
@@ -128,7 +121,10 @@ def get_tracks_by_emotion(emotion):
             timeout=10
         )
         data = search.json()
-        playlists = data.get("playlists", {}).get("items", [])
+        if not data or "playlists" not in data:
+            print("[SPOTIFY] Invalid search response:", data)
+            return []
+        playlists = data["playlists"].get("items", [])
     except Exception as e:
         print(f"[SPOTIFY SEARCH ERROR] {e}")
         return []
@@ -151,9 +147,10 @@ def get_tracks_by_emotion(emotion):
             for item in items:
                 track = item.get("track")
                 if track and "external_urls" in track:
-                    url = track["external_urls"]["spotify"]
-                    all_tracks.add(url)
-            time.sleep(0.3)  # avoid rate limiting
+                    url = track["external_urls"].get("spotify")
+                    if url:
+                        all_tracks.add(url)
+            time.sleep(0.3)
         except Exception as e:
             print(f"[SPOTIFY TRACK FETCH ERROR] {e}")
             continue
@@ -163,7 +160,6 @@ def get_tracks_by_emotion(emotion):
     return emotion_cache[emotion]
 
 # === Emotion Detection Endpoint ===
-
 @app.post("/emotion-music")
 async def detect_and_recommend(file: UploadFile = File(...)):
     try:
@@ -173,11 +169,16 @@ async def detect_and_recommend(file: UploadFile = File(...)):
         img_array = np.expand_dims(np.array(img) / 255.0, axis=0)
 
         pred = model.predict(img_array)
+        if np.sum(pred) == 0:
+            raise ValueError("Model returned all zero probabilities.")
+
         emotions = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
         detected_emotion = emotions[np.argmax(pred)]
 
         tracks = get_tracks_by_emotion(detected_emotion)
         return {"emotion": detected_emotion, "tracks": tracks}
     except Exception as e:
+        import traceback
         print("[ERROR]", e)
+        traceback.print_exc()
         return {"emotion": "undefined", "tracks": []}
