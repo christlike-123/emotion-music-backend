@@ -2,8 +2,6 @@ import os
 import time
 import random
 import traceback
-import requests
-import io
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
@@ -14,6 +12,8 @@ from keras import layers
 from keras.utils import register_keras_serializable
 from PIL import Image
 import numpy as np
+import io
+import requests
 import tensorflow as tf
 import cv2
 
@@ -123,10 +123,17 @@ def get_tracks_by_emotion(emotion):
             timeout=10
         )
         data = search.json()
-        playlists = data.get("playlists", {}).get("items", [])
+        print("[SPOTIFY] Search response JSON:", data)  # Debug logging
+
+        if not data or "playlists" not in data:
+            print("[SPOTIFY] Invalid search response:", data)
+            return []
+
+        playlists = data["playlists"].get("items", [])
         if not playlists:
             print(f"[SPOTIFY] No playlists found for emotion: {emotion}")
             return []
+
     except Exception as e:
         print(f"[SPOTIFY SEARCH ERROR] {e}")
         return []
@@ -134,10 +141,14 @@ def get_tracks_by_emotion(emotion):
     all_tracks = set()
 
     for playlist in playlists:
-        playlist_id = playlist.get("id")
-        if not playlist_id:
-            print("[SPOTIFY] Invalid playlist object.")
+        if playlist is None:
+            print("[SPOTIFY] Skipped None playlist.")
             continue
+        if not isinstance(playlist, dict) or "id" not in playlist:
+            print(f"[SPOTIFY] Skipped invalid playlist: {playlist}")
+            continue
+
+        playlist_id = playlist["id"]
 
         try:
             r = requests.get(
@@ -149,8 +160,10 @@ def get_tracks_by_emotion(emotion):
             items = r.json().get("items", [])
             for item in items:
                 track = item.get("track")
-                if track and track.get("external_urls", {}).get("spotify"):
-                    all_tracks.add(track["external_urls"]["spotify"])
+                if track and "external_urls" in track:
+                    url = track["external_urls"].get("spotify")
+                    if url:
+                        all_tracks.add(url)
             time.sleep(0.3)
         except Exception as e:
             print(f"[SPOTIFY TRACK FETCH ERROR] {e}")
