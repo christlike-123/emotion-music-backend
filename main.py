@@ -14,6 +14,7 @@ import io
 import requests
 import tensorflow as tf
 import cv2
+from tensorflow.keras.applications.mobilenet import preprocess_input  # MobileNet preprocessing
 
 # === Custom Attention Layer ===
 
@@ -53,16 +54,25 @@ class Attention(layers.Layer):
 
 def detect_and_crop_face(pil_image):
     img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    faces = face_cascade.detectMultiScale(img, scaleFactor=1.1, minNeighbors=5)
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
 
     if len(faces) == 0:
         return pil_image  # fallback if no face is detected
 
     x, y, w, h = faces[0]
     face_img = img[y:y+h, x:x+w]
-    face_rgb = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
-    return Image.fromarray(face_rgb)
+
+    # Apply CLAHE for contrast enhancement
+    lab = cv2.cvtColor(face_img, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    cl = clahe.apply(l)
+    enhanced_img = cv2.merge((cl, a, b))
+    face_clahe = cv2.cvtColor(enhanced_img, cv2.COLOR_LAB2RGB)
+
+    return Image.fromarray(face_clahe)
 
 # === FastAPI App ===
 
@@ -136,16 +146,31 @@ def get_tracks_by_emotion(emotion):
     emotion_cache[emotion] = random.sample(track_list, min(20, len(track_list)))
     return emotion_cache[emotion]
 
-# === API Endpoint ===
+# === Emotion Detection Endpoint ===
 
 @app.post("/emotion-music")
 async def detect_and_recommend(file: UploadFile = File(...)):
     image_bytes = await file.read()
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     img = detect_and_crop_face(img).resize((224, 224))
-    img_array = np.expand_dims(np.array(img) / 255.0, axis=0)
-    pred = model.predict(img_array)
+    img_array = np.expand_dims(np.array(img), axis=0)
+    img_array = preprocess_input(img_array)  # Use MobileNet-style preprocessing
+
+    pred = model.predict(img_array)[0]
     emotions = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
     detected_emotion = emotions[np.argmax(pred)]
+    confidence = float(np.max(pred))
+
     tracks = get_tracks_by_emotion(detected_emotion)
-    return {"emotion": detected_emotion, "tracks": tracks}
+
+    return {
+        "emotion": detected_emotion,
+        "confidence": confidence,
+        "tracks": tracks
+    }
+
+# === Ping Route for Uptime Monitoring ===
+
+@app.get("/ping")
+async def ping():
+    return {"status": "ok"}
