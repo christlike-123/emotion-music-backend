@@ -73,11 +73,17 @@ model = load_model("facemodel.keras", custom_objects={"Attention": Attention})
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # You can restrict this to your frontend domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# === Root Route ===
+
+@app.get("/")
+def read_root():
+    return {"message": "Emotion Music Backend is running."}
 
 # === Spotify API Setup ===
 
@@ -92,15 +98,20 @@ def get_spotify_token():
         data={"grant_type": "client_credentials"},
         auth=(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET),
     )
-    return resp.json()["access_token"]
+    token = resp.json().get("access_token")
+    if not token:
+        print("[SPOTIFY TOKEN ERROR]", resp.json())
+    return token
 
 def get_tracks_by_emotion(emotion):
     if emotion in emotion_cache:
         return emotion_cache[emotion]
 
     token = get_spotify_token()
-    headers = {"Authorization": f"Bearer {token}"}
+    if not token:
+        return []
 
+    headers = {"Authorization": f"Bearer {token}"}
     search = requests.get(
         "https://api.spotify.com/v1/search",
         headers=headers,
@@ -111,10 +122,10 @@ def get_tracks_by_emotion(emotion):
     all_tracks = set()
 
     for playlist in playlists:
-        if not playlist or "id" not in playlist:
+        playlist_id = playlist.get("id")
+        if not playlist_id:
             continue
 
-        playlist_id = playlist["id"]
         try:
             r = requests.get(
                 f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
@@ -129,23 +140,33 @@ def get_tracks_by_emotion(emotion):
                     all_tracks.add(url)
             time.sleep(0.3)  # avoid rate limiting
         except Exception as e:
-            print(f"Error fetching playlist {playlist_id}: {e}")
-            continue
+            print(f"[ERROR FETCHING PLAYLIST {playlist_id}]:", e)
 
     track_list = list(all_tracks)
-    emotion_cache[emotion] = random.sample(track_list, min(20, len(track_list)))
-    return emotion_cache[emotion]
+    if track_list:
+        sampled = random.sample(track_list, min(20, len(track_list)))
+    else:
+        sampled = []
 
-# === API Endpoint ===
+    emotion_cache[emotion] = sampled
+    return sampled
+
+# === Emotion Detection Endpoint ===
 
 @app.post("/emotion-music")
 async def detect_and_recommend(file: UploadFile = File(...)):
-    image_bytes = await file.read()
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img = detect_and_crop_face(img).resize((224, 224))
-    img_array = np.expand_dims(np.array(img) / 255.0, axis=0)
-    pred = model.predict(img_array)
-    emotions = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
-    detected_emotion = emotions[np.argmax(pred)]
-    tracks = get_tracks_by_emotion(detected_emotion)
-    return {"emotion": detected_emotion, "tracks": tracks}
+    try:
+        image_bytes = await file.read()
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img = detect_and_crop_face(img).resize((224, 224))
+        img_array = np.expand_dims(np.array(img) / 255.0, axis=0)
+
+        pred = model.predict(img_array)
+        emotions = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
+        detected_emotion = emotions[np.argmax(pred)]
+
+        tracks = get_tracks_by_emotion(detected_emotion)
+        return {"emotion": detected_emotion, "tracks": tracks}
+    except Exception as e:
+        print("[ERROR]", e)
+        return {"emotion": "undefined", "tracks": []}
