@@ -15,7 +15,7 @@ import numpy as np
 import tensorflow as tf
 import cv2
 from tensorflow.keras.applications.mobilenet import preprocess_input
-import httpx  # NEW: used instead of requests
+import httpx
 
 # === Custom Attention Layer ===
 
@@ -76,7 +76,9 @@ def detect_and_crop_face(pil_image):
 
 app = FastAPI()
 
+print("[INFO] Loading model...")
 model = load_model("facemodel.keras", custom_objects={"Attention": Attention})
+print("[INFO] Model loaded.")
 
 app.add_middleware(
     CORSMiddleware,
@@ -96,7 +98,7 @@ emotion_cache = {}
 # === Async Spotify Functions ===
 
 async def get_spotify_token():
-    print("Fetching Spotify token...")
+    print("[INFO] Requesting Spotify token...")
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "https://accounts.spotify.com/api/token",
@@ -109,8 +111,10 @@ async def get_spotify_token():
 
 async def get_tracks_by_emotion(emotion):
     if emotion in emotion_cache:
+        print(f"[CACHE] Returning cached tracks for emotion: {emotion}")
         return emotion_cache[emotion]
 
+    print(f"[INFO] Fetching playlists for emotion: {emotion}")
     token = await get_spotify_token()
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -139,11 +143,11 @@ async def get_tracks_by_emotion(emotion):
                     if track and "external_urls" in track:
                         all_tracks.add(track["external_urls"]["spotify"])
             except Exception as e:
-                print(f"Error fetching playlist {playlist_id}: {e}")
-                continue
+                print(f"[ERROR] Playlist fetch failed: {e}")
 
     track_list = list(all_tracks)
     emotion_cache[emotion] = random.sample(track_list, min(10, len(track_list)))
+    print(f"[INFO] {len(track_list)} tracks found for emotion: {emotion}")
     return emotion_cache[emotion]
 
 # === Emotion Detection Endpoint ===
@@ -151,44 +155,40 @@ async def get_tracks_by_emotion(emotion):
 @app.post("/emotion-music")
 async def detect_and_recommend(file: UploadFile = File(...)):
     try:
-        # Step 1: Read and preprocess image
+        start_time = time.time()
         image_bytes = await file.read()
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         img = detect_and_crop_face(img).resize((224, 224))
         img_array = np.expand_dims(np.array(img), axis=0)
         img_array = preprocess_input(img_array)
 
-        # Step 2: Predict emotion
+        print("[INFO] Predicting emotion...")
         pred = model.predict(img_array)[0]
         emotions = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
         detected_emotion = emotions[np.argmax(pred)]
         confidence = float(np.max(pred))
 
-        # Step 3: Get tracks
+        print(f"[RESULT] Detected: {detected_emotion} ({confidence:.2f})")
+
+        print("[INFO] Fetching Spotify tracks...")
         tracks = await get_tracks_by_emotion(detected_emotion)
 
-        if not tracks:
-            return {
-                "emotion": detected_emotion,
-                "confidence": confidence,
-                "tracks": [],
-                "message": "No Spotify tracks found for this emotion."
-            }
+        duration = time.time() - start_time
+        print(f"[INFO] Total time: {duration:.2f} sec")
 
         return {
             "emotion": detected_emotion,
             "confidence": confidence,
-            "tracks": tracks
+            "tracks": tracks or [],
+            "message": "Success" if tracks else "No tracks found."
         }
 
     except Exception as e:
-        print(f"[ERROR] Emotion detection failed: {e}")
+        print(f"[ERROR] Full emotion/music pipeline failed: {e}")
         return {
             "error": "Error detecting emotion or retrieving music.",
             "details": str(e)
         }
-
-# === Ping Route ===
 
 @app.get("/ping")
 async def ping():
