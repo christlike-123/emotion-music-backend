@@ -93,9 +93,10 @@ SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "bef55abea06246c5b8c9
 
 emotion_cache = {}
 
-# NEW: Async Spotify Functions
+# === Async Spotify Functions ===
 
 async def get_spotify_token():
+    print("Fetching Spotify token...")
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "https://accounts.spotify.com/api/token",
@@ -149,24 +150,43 @@ async def get_tracks_by_emotion(emotion):
 
 @app.post("/emotion-music")
 async def detect_and_recommend(file: UploadFile = File(...)):
-    image_bytes = await file.read()
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img = detect_and_crop_face(img).resize((224, 224))
-    img_array = np.expand_dims(np.array(img), axis=0)
-    img_array = preprocess_input(img_array)
+    try:
+        # Step 1: Read and preprocess image
+        image_bytes = await file.read()
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img = detect_and_crop_face(img).resize((224, 224))
+        img_array = np.expand_dims(np.array(img), axis=0)
+        img_array = preprocess_input(img_array)
 
-    pred = model.predict(img_array)[0]
-    emotions = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
-    detected_emotion = emotions[np.argmax(pred)]
-    confidence = float(np.max(pred))
+        # Step 2: Predict emotion
+        pred = model.predict(img_array)[0]
+        emotions = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
+        detected_emotion = emotions[np.argmax(pred)]
+        confidence = float(np.max(pred))
 
-    tracks = await get_tracks_by_emotion(detected_emotion)
+        # Step 3: Get tracks
+        tracks = await get_tracks_by_emotion(detected_emotion)
 
-    return {
-        "emotion": detected_emotion,
-        "confidence": confidence,
-        "tracks": tracks
-    }
+        if not tracks:
+            return {
+                "emotion": detected_emotion,
+                "confidence": confidence,
+                "tracks": [],
+                "message": "No Spotify tracks found for this emotion."
+            }
+
+        return {
+            "emotion": detected_emotion,
+            "confidence": confidence,
+            "tracks": tracks
+        }
+
+    except Exception as e:
+        print(f"[ERROR] Emotion detection failed: {e}")
+        return {
+            "error": "Error detecting emotion or retrieving music.",
+            "details": str(e)
+        }
 
 # === Ping Route ===
 
