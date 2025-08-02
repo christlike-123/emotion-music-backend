@@ -3,6 +3,7 @@ uvicorn
 numpy
 pillow
 requests
+httpx
 keras
 tensorflow
 python-multipart
