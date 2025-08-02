@@ -140,15 +140,20 @@ def get_tracks_by_emotion(emotion):
 
     all_tracks = set()
 
-    for playlist in playlists:
-        if playlist is None:
-            print("[SPOTIFY] Skipped None playlist.")
-            continue
-        if not isinstance(playlist, dict) or "id" not in playlist:
-            print(f"[SPOTIFY] Skipped invalid playlist: {playlist}")
-            continue
+   for playlist in playlists:
+    if not isinstance(playlist, dict):
+        print(f"[SPOTIFY] Skipped non-dict playlist: {playlist}")
+        continue
 
-        playlist_id = playlist["id"]
+    playlist_id = playlist.get("id")
+    if not playlist_id:
+        print(f"[SPOTIFY] Playlist missing 'id': {playlist}")
+        continue
+
+    # Proceed only if playlist_id is valid
+    print(f"[SPOTIFY] Valid playlist ID found: {playlist_id}")
+    # You can now safely use playlist_id...
+
 
         try:
             r = requests.get(
