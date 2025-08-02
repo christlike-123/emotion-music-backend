@@ -93,44 +93,57 @@ SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "bef55abea06246c5b8c9
 emotion_cache = {}
 
 def get_spotify_token():
-    resp = requests.post(
-        "https://accounts.spotify.com/api/token",
-        data={"grant_type": "client_credentials"},
-        auth=(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET),
-    )
-    token = resp.json().get("access_token")
-    if not token:
-        print("[SPOTIFY TOKEN ERROR]", resp.json())
-    return token
+    try:
+        resp = requests.post(
+            "https://accounts.spotify.com/api/token",
+            data={"grant_type": "client_credentials"},
+            auth=(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET),
+            timeout=10
+        )
+        token_data = resp.json()
+        if "access_token" in token_data:
+            return token_data["access_token"]
+        else:
+            raise ValueError("Spotify token fetch failed: " + str(token_data))
+    except Exception as e:
+        print(f"[SPOTIFY TOKEN ERROR] {e}")
+        return None
 
 def get_tracks_by_emotion(emotion):
     if emotion in emotion_cache:
         return emotion_cache[emotion]
 
     token = get_spotify_token()
-    if not token:
-        return []
-
     headers = {"Authorization": f"Bearer {token}"}
-    search = requests.get(
-        "https://api.spotify.com/v1/search",
-        headers=headers,
-        params={"q": emotion, "type": "playlist", "limit": 5},
-    )
-    playlists = search.json().get("playlists", {}).get("items", [])
+
+    try:
+        search = requests.get(
+            "https://api.spotify.com/v1/search",
+            headers=headers,
+            params={"q": emotion, "type": "playlist", "limit": 5},
+            timeout=10
+        )
+        data = search.json()
+        if not isinstance(data, dict):
+            raise ValueError("Invalid response from Spotify (not JSON)")
+        playlists = data.get("playlists", {}).get("items", [])
+    except Exception as e:
+        print(f"[SPOTIFY SEARCH ERROR] {e}")
+        return []
 
     all_tracks = set()
 
     for playlist in playlists:
-        playlist_id = playlist.get("id")
-        if not playlist_id:
+        if not playlist or "id" not in playlist:
             continue
 
+        playlist_id = playlist["id"]
         try:
             r = requests.get(
                 f"https://api.spotify.com/v1/playlists/{playlist_id}/tracks",
                 headers=headers,
                 params={"limit": 50},
+                timeout=10
             )
             items = r.json().get("items", [])
             for item in items:
@@ -140,16 +153,12 @@ def get_tracks_by_emotion(emotion):
                     all_tracks.add(url)
             time.sleep(0.3)  # avoid rate limiting
         except Exception as e:
-            print(f"[ERROR FETCHING PLAYLIST {playlist_id}]:", e)
+            print(f"[SPOTIFY TRACK FETCH ERROR] {e}")
+            continue
 
     track_list = list(all_tracks)
-    if track_list:
-        sampled = random.sample(track_list, min(20, len(track_list)))
-    else:
-        sampled = []
-
-    emotion_cache[emotion] = sampled
-    return sampled
+    emotion_cache[emotion] = random.sample(track_list, min(20, len(track_list)))
+    return emotion_cache[emotion]
 
 # === Emotion Detection Endpoint ===
 
