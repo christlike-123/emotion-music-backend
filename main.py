@@ -124,7 +124,12 @@ def get_tracks_by_emotion(emotion):
         if not data or "playlists" not in data:
             print("[SPOTIFY] Invalid search response:", data)
             return []
+
         playlists = data["playlists"].get("items", [])
+        if not playlists:
+            print(f"[SPOTIFY] No playlists found for emotion: {emotion}")
+            return []
+
     except Exception as e:
         print(f"[SPOTIFY SEARCH ERROR] {e}")
         return []
@@ -132,8 +137,13 @@ def get_tracks_by_emotion(emotion):
     all_tracks = set()
 
     for playlist in playlists:
+        if not playlist:
+            print("[SPOTIFY] Encountered empty playlist object.")
+            continue
+
         playlist_id = playlist.get("id")
         if not playlist_id:
+            print("[SPOTIFY] Playlist missing 'id'. Skipping...")
             continue
 
         try:
@@ -156,6 +166,10 @@ def get_tracks_by_emotion(emotion):
             continue
 
     track_list = list(all_tracks)
+    if not track_list:
+        print(f"[SPOTIFY] No tracks found for emotion: {emotion}")
+        return []
+
     emotion_cache[emotion] = random.sample(track_list, min(20, len(track_list)))
     return emotion_cache[emotion]
 
