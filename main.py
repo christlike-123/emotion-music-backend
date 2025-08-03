@@ -2,8 +2,11 @@ import os
 import time
 import random
 import traceback
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+import io
+import numpy as np
+import cv2
+import requests
+import tensorflow as tf
 
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,11 +14,9 @@ from keras.models import load_model
 from keras import layers
 from keras.utils import register_keras_serializable
 from PIL import Image
-import numpy as np
-import io
-import requests
-import tensorflow as tf
-import cv2
+
+# Disable GPU (for CPU-only environments like Render free tier)
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 # === Custom Attention Layer ===
 def kernel_init(scale):
@@ -63,8 +64,10 @@ def detect_and_crop_face(pil_image):
 # === FastAPI App ===
 app = FastAPI()
 
+# Load your trained model
 model = load_model("facemodel.keras", custom_objects={"Attention": Attention})
 
+# Enable CORS for all origins (adjust for production)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -84,7 +87,6 @@ def ping():
 # === Spotify API Setup ===
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID", "c37a556373604e48a727e92549d859fc")
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "bef55abea06246c5b8c9ece20aed32ec")
-
 emotion_cache = {}
 
 def get_spotify_token():
@@ -119,7 +121,7 @@ def get_tracks_by_emotion(emotion):
         search = requests.get(
             "https://api.spotify.com/v1/search",
             headers=headers,
-            params={"q": emotion, "type": "playlist", "limit": 5},
+            params={"q": f"{emotion} music", "type": "playlist", "limit": 5},
             timeout=10
         )
         data = search.json()
