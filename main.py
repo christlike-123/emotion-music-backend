@@ -123,8 +123,6 @@ def get_tracks_by_emotion(emotion):
             timeout=10
         )
         data = search.json()
-        print("[SPOTIFY] Search response JSON:", data)  # Debug logging
-
         if not data or "playlists" not in data:
             print("[SPOTIFY] Invalid search response:", data)
             return []
@@ -140,20 +138,12 @@ def get_tracks_by_emotion(emotion):
 
     all_tracks = set()
 
-   for playlist in playlists:
-    if not isinstance(playlist, dict):
-        print(f"[SPOTIFY] Skipped non-dict playlist: {playlist}")
-        continue
+    for playlist in playlists:
+        if not playlist or not playlist.get("id"):
+            print("[SPOTIFY] Invalid playlist object.")
+            continue
 
-    playlist_id = playlist.get("id")
-    if not playlist_id:
-        print(f"[SPOTIFY] Playlist missing 'id': {playlist}")
-        continue
-
-    # Proceed only if playlist_id is valid
-    print(f"[SPOTIFY] Valid playlist ID found: {playlist_id}")
-    # You can now safely use playlist_id...
-
+        playlist_id = playlist["id"]
 
         try:
             r = requests.get(
@@ -187,36 +177,23 @@ def get_tracks_by_emotion(emotion):
 async def detect_and_recommend(file: UploadFile = File(...)):
     try:
         image_bytes = await file.read()
-        if not image_bytes:
-            raise ValueError("No image data received.")
-
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         img = detect_and_crop_face(img).resize((224, 224))
         img_array = np.expand_dims(np.array(img) / 255.0, axis=0)
 
         pred = model.predict(img_array)
-        if pred is None or np.sum(pred) == 0:
-            raise ValueError("Invalid prediction result from model.")
+        if np.sum(pred) == 0:
+            raise ValueError("Model returned all zero probabilities.")
 
         emotions = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
         detected_emotion = emotions[np.argmax(pred)]
 
-        print(f"[INFO] Detected emotion: {detected_emotion}")
-
         tracks = get_tracks_by_emotion(detected_emotion)
         if not tracks:
-            raise ValueError(f"No music tracks found for emotion: {detected_emotion}")
+            return {"emotion": detected_emotion, "tracks": [], "error": "No music tracks found."}
 
-        return {
-            "emotion": detected_emotion,
-            "tracks": tracks
-        }
-
+        return {"emotion": detected_emotion, "tracks": tracks}
     except Exception as e:
-        print("[ERROR] Emotion detection or track retrieval failed:", str(e))
+        print("[ERROR]", e)
         traceback.print_exc()
-        return {
-            "emotion": "undefined",
-            "tracks": [],
-            "error": f"Error: {str(e)}"
-        }
+        return {"emotion": "undefined", "tracks": [], "error": str(e)}
